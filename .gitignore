@@ -1,0 +1,24 @@
+# Binaries
+claude-switch
+claude-switch-*
+*.exe
+
+# Coverage
+coverage.out
+
+# Vendor
+vendor/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Test binary
+*.test

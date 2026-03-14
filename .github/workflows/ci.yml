@@ -1,0 +1,109 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.21'
+
+      - name: Download dependencies
+        run: go mod download
+
+      - name: Run unit tests
+        run: go test -v -coverprofile=coverage.out ./internal/...
+
+      - name: Run E2E tests
+        run: go test -v ./tests/e2e/...
+
+      - name: Upload coverage
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage
+          path: coverage.out
+
+  build:
+    needs: test
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - goos: linux
+            goarch: amd64
+            ext: ""
+          - goos: darwin
+            goarch: amd64
+            ext: ""
+          - goos: darwin
+            goarch: arm64
+            ext: ""
+          - goos: windows
+            goarch: amd64
+            ext: ".exe"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.21'
+
+      - name: Build
+        run: |
+          ext=${{ matrix.ext }}
+          GOOS=${{ matrix.goos }} GOARCH=${{ matrix.goarch }} go build -ldflags="-s -w" -o "claude-switch-${{ matrix.goos }}-${{ matrix.goarch }}${ext}" ./cmd/claude-switch
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: claude-switch-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: claude-*
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: Delete existing tags
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          for tag in $(git tag -l | head -10); do
+            git push origin :refs/tags/$tag 2>/dev/null || true
+            git tag -d $tag 2>/dev/null || true
+          done
+
+      - name: Create tag and release
+        run: |
+          TAG="v$(date -u +'%Y.%m.%d').${GITHUB_RUN_NUMBER}"
+          git tag -a "$TAG" -m "Release $TAG"
+          git push origin "$TAG"
+          
+          gh release create "$TAG" \
+            --title "$TAG" \
+            --generate-notes \
+            artifacts/*
+
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
