@@ -11,27 +11,18 @@ const binaryName = "claude-switch"
 
 func getProjectRoot() string {
 	// Get the directory where the test binary is run
-	// Walk up until we find cmd/claude-switch
 	wd, _ := os.Getwd()
 	
-	// Try walking up from current directory
+	// Walk up until we find go.mod
 	for wd != "/" {
-		if _, err := os.Stat(filepath.Join(wd, "cmd", "claude-switch")); err == nil {
-			return wd
-		}
 		if _, err := os.Stat(filepath.Join(wd, "go.mod")); err == nil {
 			return wd
 		}
 		wd = filepath.Dir(wd)
 	}
 	
-	// Fallback - try relative to tests/e2e
-	wd, _ = os.Getwd()
-	if filepath.Base(wd) == "e2e" {
-		return filepath.Dir(filepath.Dir(wd))
-	}
-	
-	return wd
+	// Fallback
+	return "."
 }
 
 func buildBinary(t *testing.T) string {
