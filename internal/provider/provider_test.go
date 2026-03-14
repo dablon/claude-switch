@@ -1,100 +1,49 @@
 package provider
 
 import (
-	"strings"
 	"os"
 	"testing"
 )
 
-func TestDetectProvider_Anthropic(t *testing.T) {
+func TestDetectProvider_ByName(t *testing.T) {
 	tests := []struct {
 		name     string
-		apiKey   string
+		input    string
 		expected ProviderType
 	}{
-		{"anthropic key", "sk-ant-api03-test", ProviderAnthropic},
-		{"anthropic longer key", "sk-ant-api03-abc123def456ghi789jkl012mno345pqr", ProviderAnthropic},
+		// Exact matches
+		{"anthropic", "anthropic", ProviderAnthropic},
+		{"openai", "openai", ProviderOpenAI},
+		{"minimax", "minimax", ProviderMinimax},
+		{"azure", "azure", ProviderAzure},
+		{"vertex", "vertex", ProviderVertex},
+		{"github-copilot", "github-copilot", ProviderGitHubCopilot},
+
+		// Name contains provider
+		{"my-anthropic-key", "my-anthropic-key", ProviderAnthropic},
+		{"openai-prod", "openai-prod", ProviderOpenAI},
+		{"minimax-test", "minimax-test", ProviderMinimax},
+		{"azure-eastus", "azure-eastus", ProviderAzure},
+
+		// Case insensitive
+		{"Anthropic", "Anthropic", ProviderAnthropic},
+		{"OPENAI", "OPENAI", ProviderOpenAI},
+		{"MiniMax", "MiniMax", ProviderMinimax},
+
+		// Unknown names fall back to custom
+		{"my-custom-llm", "my-custom-llm", ProviderCustom},
+		{"random-name", "random-name", ProviderCustom},
+		{"empty", "", ProviderCustom},
+		{"claude-pro", "claude-pro", ProviderCustom},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := DetectProvider(tt.apiKey)
+			result := DetectProvider(tt.input)
 			if result != tt.expected {
-				t.Errorf("DetectProvider(%q) = %v, want %v", tt.apiKey, result, tt.expected)
+				t.Errorf("DetectProvider(%q) = %v, want %v", tt.input, result, tt.expected)
 			}
 		})
-	}
-}
-
-func TestDetectProvider_OpenAI(t *testing.T) {
-	tests := []struct {
-		name     string
-		apiKey   string
-		expected ProviderType
-	}{
-		{"openai key", "sk-abcdefghijklmnopqrstuvwxyz123456789", ProviderOpenAI},
-		{"openai longer", "sk-abc123def456ghi789jkl012mno345pqr678stu", ProviderOpenAI},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := DetectProvider(tt.apiKey)
-			if result != tt.expected {
-				t.Errorf("DetectProvider(%q) = %v, want %v", tt.apiKey, result, tt.expected)
-			}
-		})
-	}
-}
-
-func TestDetectProvider_Minimax(t *testing.T) {
-	tests := []struct {
-		name     string
-		apiKey   string
-		expected ProviderType
-	}{
-		{"minimax key", "mmx_yYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYY", ProviderMinimax},
-		{"long random key", "verylongkeythatdoesnotstartwithskorskant123456789", ProviderMinimax},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := DetectProvider(tt.apiKey)
-			if result != tt.expected {
-				t.Errorf("DetectProvider(%q) = %v, want %v", tt.apiKey, result, tt.expected)
-			}
-		})
-	}
-}
-
-func TestDetectProvider_ShortKey(t *testing.T) {
-	// Short keys should return custom
-	result := DetectProvider("sk")
-	if result != ProviderCustom {
-		t.Errorf("DetectProvider('sk') = %v, want %v", result, ProviderCustom)
-	}
-}
-
-func TestDetectProvider_Vertex(t *testing.T) {
-	// Vertex uses GOOGLE_APPLICATION_CREDENTIALS but the key format varies
-	// Very long keys with specific patterns get detected as minimax
-	result := DetectProvider("ya29.a0AfH6SMBx1234567890abcdefghijklmnopqrstuvwxyz1234567890")
-	if result != ProviderMinimax {
-		t.Errorf("DetectProvider() = %v, want %v", result, ProviderMinimax)
-	}
-}
-
-func TestDetectProvider_AzureEdgeCase(t *testing.T) {
-	// Azure keys are typically very long (80+ chars)
-	result := DetectProvider("this-is-a-very-long-azure-key-with-lots-of-characters-that-makes-it-obviously-azure-123456789")
-	if result != ProviderAzure {
-		t.Errorf("DetectProvider() = %v, want %v", result, ProviderAzure)
-	}
-}
-
-func TestDetectProvider_Empty(t *testing.T) {
-	result := DetectProvider("")
-	if result != ProviderCustom {
-		t.Errorf("DetectProvider('') = %v, want %v", result, ProviderCustom)
 	}
 }
 
@@ -105,7 +54,7 @@ func TestGetDefaultModel(t *testing.T) {
 	}{
 		{ProviderAnthropic, "claude-opus-4-6"},
 		{ProviderOpenAI, "gpt-5"},
-		{ProviderMinimax, "minimax-M2.5"},
+		{ProviderMinimax, "MiniMax-M2.5"},
 		{ProviderGitHubCopilot, "gpt-5-mini"},
 		{ProviderCustom, "gpt-5"},
 	}
@@ -172,7 +121,7 @@ func TestGetEndpoint(t *testing.T) {
 		{ProviderAzure, "https://{resource}.openai.azure.com"},
 		{ProviderAnthropic, ""},
 		{ProviderOpenAI, ""},
-		{ProviderMinimax, ""},
+		{ProviderMinimax, "https://api.minimax.io/anthropic"},
 		{ProviderCustom, ""},
 	}
 
@@ -193,7 +142,7 @@ func TestDetectFromEnv(t *testing.T) {
 	origMinimax := os.Getenv("MINIMAX_API_KEY")
 	origAzure := os.Getenv("AZURE_OPENAI_API_KEY")
 	origGoogle := os.Getenv("GOOGLE_APPLICATION_CREDENTIALS")
-	
+
 	defer func() {
 		setOrUnset("ANTHROPIC_API_KEY", origAnthropic)
 		setOrUnset("OPENAI_API_KEY", origOpenAI)
@@ -208,7 +157,7 @@ func TestDetectFromEnv(t *testing.T) {
 	os.Unsetenv("MINIMAX_API_KEY")
 	os.Unsetenv("AZURE_OPENAI_API_KEY")
 	os.Unsetenv("GOOGLE_APPLICATION_CREDENTIALS")
-	
+
 	result := DetectFromEnv()
 	if result != ProviderCustom {
 		t.Errorf("DetectFromEnv() = %v, want %v with no env vars", result, ProviderCustom)
@@ -221,7 +170,7 @@ func TestDetectFromEnv(t *testing.T) {
 		t.Errorf("DetectFromEnv() = %v, want %v with ANTHROPIC_API_KEY", result, ProviderAnthropic)
 	}
 
-	// Test with OPENAI_API_KEY (should take precedence if set after)
+	// Test with OPENAI_API_KEY
 	os.Setenv("OPENAI_API_KEY", "sk-test")
 	os.Unsetenv("ANTHROPIC_API_KEY")
 	result = DetectFromEnv()
@@ -264,7 +213,7 @@ func TestExportVars(t *testing.T) {
 		expected []string
 	}{
 		{
-			name:     "anthropic",
+			name:     "anthropic maps to ANTHROPIC vars",
 			provider: ProviderAnthropic,
 			apiKey:   "sk-ant-test",
 			model:    "claude-opus-4-6",
@@ -275,15 +224,18 @@ func TestExportVars(t *testing.T) {
 			},
 		},
 		{
-			name:     "minimax with endpoint",
+			name:     "minimax uses AUTH_TOKEN and sets all model aliases",
 			provider: ProviderMinimax,
 			apiKey:   "mmx_test",
-			model:    "minimax-M2.5",
+			model:    "MiniMax-M2.5",
 			endpoint: "https://api.minimax.chat",
 			expected: []string{
-				"export MINIMAX_API_KEY=mmx_test",
-				"export MINIMAX_MODEL=minimax-M2.5",
-				"export MINIMAX_ENDPOINT=https://api.minimax.chat",
+				"export ANTHROPIC_AUTH_TOKEN=mmx_test",
+				"export ANTHROPIC_MODEL=MiniMax-M2.5",
+				"export ANTHROPIC_BASE_URL=https://api.minimax.chat",
+				"export ANTHROPIC_DEFAULT_SONNET_MODEL=MiniMax-M2.5",
+				"export ANTHROPIC_DEFAULT_OPUS_MODEL=MiniMax-M2.5",
+				"export ANTHROPIC_DEFAULT_HAIKU_MODEL=MiniMax-M2.5",
 			},
 		},
 		{
@@ -293,7 +245,7 @@ func TestExportVars(t *testing.T) {
 			model:    "",
 			endpoint: "",
 			expected: []string{
-				"export CUSTOM_API_KEY=test-key",
+				"export ANTHROPIC_API_KEY=test-key",
 			},
 		},
 	}
@@ -301,16 +253,36 @@ func TestExportVars(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			result := ExportVars(tt.provider, tt.apiKey, tt.model, tt.endpoint)
-			if len(result) != len(tt.expected) {
-				t.Errorf("ExportVars() returned %d lines, want %d", len(result), len(tt.expected))
-				return
+			// Check that all expected lines are present (order-independent)
+			resultSet := make(map[string]bool, len(result))
+			for _, l := range result {
+				resultSet[l] = true
 			}
-			for i, line := range result {
-				if line != tt.expected[i] {
-					t.Errorf("ExportVars()[%d] = %v, want %v", i, line, tt.expected[i])
+			for _, want := range tt.expected {
+				if !resultSet[want] {
+					t.Errorf("ExportVars() missing line %q\ngot: %v", want, result)
 				}
 			}
 		})
+	}
+}
+
+func TestExportVarsPowerShell(t *testing.T) {
+	result := ExportVarsPowerShell(ProviderMinimax, "mmx_test", "MiniMax-M2.5", "https://api.minimax.chat")
+	expected := []string{
+		`$env:ANTHROPIC_AUTH_TOKEN="mmx_test"`,
+		`$env:ANTHROPIC_MODEL="MiniMax-M2.5"`,
+		`$env:ANTHROPIC_BASE_URL="https://api.minimax.chat"`,
+		`$env:ANTHROPIC_DEFAULT_SONNET_MODEL="MiniMax-M2.5"`,
+	}
+	resultSet := make(map[string]bool, len(result))
+	for _, l := range result {
+		resultSet[l] = true
+	}
+	for _, want := range expected {
+		if !resultSet[want] {
+			t.Errorf("ExportVarsPowerShell() missing line %q\ngot: %v", want, result)
+		}
 	}
 }
 
@@ -347,59 +319,6 @@ func TestProviderUnmarshalJSON(t *testing.T) {
 	}
 	if p != ProviderMinimax {
 		t.Errorf("UnmarshalJSON() = %v, want %v", p, ProviderMinimax)
-	}
-}
-
-func TestDetectProvider_AdditionalCases(t *testing.T) {
-	tests := []struct {
-		name     string
-		apiKey   string
-		expected ProviderType
-	}{
-		{"very long key", strings.Repeat("x", 100), ProviderAzure},
-		{"medium sk", "sk-abc123def456ghi789", ProviderOpenAI},
-		{"non-sk long", "abcdefghijklmnopqrstuvwxyz12345678901234567890", ProviderMinimax},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := DetectProvider(tt.apiKey)
-			if result != tt.expected {
-				t.Errorf("DetectProvider(%q) = %v, want %v", tt.name, result, tt.expected)
-			}
-		})
-	}
-}
-
-func TestDetectProvider_AllPatterns(t *testing.T) {
-	tests := []struct {
-		name     string
-		apiKey   string
-		expected ProviderType
-	}{
-		// Anthropic
-		{"ant basic", "sk-ant-api01", ProviderAnthropic},
-		{"ant long", "sk-ant-api03-abc123def456ghi789jkl012mno345pqr678stu901vwx", ProviderAnthropic},
-		// OpenAI
-		{"openai basic", "sk-abcdefghijklmnopqrstuvwxyz123456789", ProviderOpenAI},
-		// Azure (very long)
-		{"azure long", strings.Repeat("z", 85), ProviderAzure},
-		// Minimax
-		{"minimax", "mmx_abc123def456ghi789jkl012mno345pqr678stu", ProviderMinimax},
-		{"random long", "abc123def456ghi789jkl012mno345pqr678stu901vwx234", ProviderMinimax},
-		// Custom
-		{"empty", "", ProviderCustom},
-		{"short", "abc", ProviderCustom},
-		{"tiny sk", "sk", ProviderCustom},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := DetectProvider(tt.apiKey)
-			if result != tt.expected {
-				t.Errorf("DetectProvider(%q) = %v, want %v", tt.name, result, tt.expected)
-			}
-		})
 	}
 }
 

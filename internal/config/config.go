@@ -11,11 +11,11 @@ import (
 )
 
 type Profile struct {
-	Name     string             `json:"name"`
+	Name     string                `json:"name"`
 	Provider provider.ProviderType `json:"provider"`
-	Model    string             `json:"model"`
-	APIKey   string             `json:"api_key,omitempty"`
-	Endpoint string             `json:"endpoint,omitempty"`
+	Model    string                `json:"model"`
+	APIKey   string                `json:"api_key,omitempty"`
+	Endpoint string                `json:"endpoint,omitempty"`
 }
 
 type Config struct {
@@ -56,9 +56,21 @@ func SetFileSystem(f FileSystem) {
 }
 
 var (
-	configDir  = filepath.Join(os.Getenv("HOME"), ".claude-switch")
-	configFile = filepath.Join(configDir, "config.json")
+	configDir  string
+	configFile string
 )
+
+func init() {
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		homeDir = os.Getenv("HOME")
+		if homeDir == "" {
+			homeDir = os.Getenv("USERPROFILE")
+		}
+	}
+	configDir = filepath.Join(homeDir, ".claude-switch")
+	configFile = filepath.Join(configDir, "config.json")
+}
 
 // Load reads the config from disk
 func Load() (*Config, error) {
@@ -189,14 +201,24 @@ func SortedProfiles(c *Config) []Profile {
 	return sorted
 }
 
-// ExportEnvVars returns the environment variables for a profile
+// ExportEnvVars returns the bash export commands for a profile (ANTHROPIC_* vars)
 func ExportEnvVars(p *Profile) []string {
 	return provider.ExportVars(p.Provider, p.APIKey, p.Model, p.Endpoint)
 }
 
-// DetectAndCreateProfile creates a profile with auto-detected provider
+// ExportEnvVarsPowerShell returns PowerShell $env: commands for a profile (ANTHROPIC_* vars)
+func ExportEnvVarsPowerShell(p *Profile) []string {
+	return provider.ExportVarsPowerShell(p.Provider, p.APIKey, p.Model, p.Endpoint)
+}
+
+// ApplyEnvVars sets ANTHROPIC_* env vars at system level for a profile
+func ApplyEnvVars(p *Profile) error {
+	return provider.ApplyEnvVars(p.Provider, p.APIKey, p.Model, p.Endpoint)
+}
+
+// DetectAndCreateProfile creates a profile with auto-detected provider from name
 func DetectAndCreateProfile(name, apiKey, model, endpoint string) Profile {
-	detectedProvider := provider.DetectProvider(apiKey)
+	detectedProvider := provider.DetectProvider(name)
 
 	// If model not provided, use default for detected provider
 	if model == "" {

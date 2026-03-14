@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	"claude-switch/internal/provider"
@@ -299,24 +300,23 @@ func TestExportEnvVars(t *testing.T) {
 
 	lines := ExportEnvVars(p)
 
-	if len(lines) != 2 {
-		t.Errorf("ExportEnvVars() returned %d lines, want 2", len(lines))
+	resultSet := make(map[string]bool, len(lines))
+	for _, l := range lines {
+		resultSet[l] = true
 	}
-
-	if lines[0] != "export ANTHROPIC_API_KEY=sk-ant-test" {
-		t.Errorf("ExportEnvVars()[0] = %v", lines[0])
+	if !resultSet["export ANTHROPIC_API_KEY=sk-ant-test"] {
+		t.Errorf("ExportEnvVars() missing ANTHROPIC_API_KEY line, got: %v", lines)
 	}
-
-	if lines[1] != "export ANTHROPIC_MODEL=claude-opus-4-6" {
-		t.Errorf("ExportEnvVars()[1] = %v", lines[1])
+	if !resultSet["export ANTHROPIC_MODEL=claude-opus-4-6"] {
+		t.Errorf("ExportEnvVars() missing ANTHROPIC_MODEL line, got: %v", lines)
 	}
 }
 
 func TestDetectAndCreateProfile_AutoDetect(t *testing.T) {
-	p := DetectAndCreateProfile("test", "sk-ant-test", "", "")
+	p := DetectAndCreateProfile("anthropic-prod", "sk-ant-test", "", "")
 
-	if p.Name != "test" {
-		t.Errorf("Name = %v, want 'test'", p.Name)
+	if p.Name != "anthropic-prod" {
+		t.Errorf("Name = %v, want 'anthropic-prod'", p.Name)
 	}
 
 	if p.Provider != provider.ProviderAnthropic {
@@ -329,8 +329,20 @@ func TestDetectAndCreateProfile_AutoDetect(t *testing.T) {
 	}
 }
 
+func TestDetectAndCreateProfile_ByName_Minimax(t *testing.T) {
+	p := DetectAndCreateProfile("minimax", "sk-cp-some-key", "", "")
+
+	if p.Provider != provider.ProviderMinimax {
+		t.Errorf("Provider = %v, want %v", p.Provider, provider.ProviderMinimax)
+	}
+
+	if p.Model != "MiniMax-M2.5" {
+		t.Errorf("Model = %v, want 'MiniMax-M2.5'", p.Model)
+	}
+}
+
 func TestDetectAndCreateProfile_Explicit(t *testing.T) {
-	p := DetectAndCreateProfile("test", "sk-ant-test", "claude-sonnet-4-20250514", "")
+	p := DetectAndCreateProfile("my-profile", "sk-ant-test", "claude-sonnet-4-20250514", "")
 
 	if p.Model != "claude-sonnet-4-20250514" {
 		t.Errorf("Model = %v, want 'claude-sonnet-4-20250514'", p.Model)
@@ -374,6 +386,10 @@ func TestSave_AndLoad(t *testing.T) {
 }
 
 func TestLoad_FileReadError(t *testing.T) {
+	// Windows doesn't honor Unix file permissions — skip
+	if runtime.GOOS == "windows" {
+		t.Skip("Skipping permission test on Windows")
+	}
 	// Skip if running as root (root can read any file)
 	if os.Geteuid() == 0 {
 		t.Skip("Skipping test when running as root")

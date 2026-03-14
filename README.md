@@ -8,8 +8,8 @@ CLI tool to easily switch between different Claude Code / AI provider profiles. 
 
 ## ✨ Features
 
-- **Auto-detect provider** from API key format (`sk-ant-*` → Anthropic, `sk-*` → OpenAI, etc.)
-- **Quick add** - just paste your API key and it auto-detects the provider
+- **Auto-detect provider** from profile name (`minimax` → Minimax, `openai-prod` → OpenAI, etc.)
+- **Quick add** - name your profile after the provider and it auto-detects everything
 - **Multiple providers** - Anthropic, OpenAI, GitHub Copilot, Minimax, Azure, Vertex
 - **Easy switch** - One command to switch profiles
 - **Export env vars** - Ready for Claude Code or any AI tool
@@ -18,11 +18,16 @@ CLI tool to easily switch between different Claude Code / AI provider profiles. 
 ## 🚀 Quick Start
 
 ```bash
-# Quick add (auto-detects provider)
-claude-switch quick --name claude-pro --key sk-ant-xxx
+# Quick add - reads API key from env automatically
+# (reads ANTHROPIC_API_KEY, MINIMAX_API_KEY, OPENAI_API_KEY, etc.)
+claude-switch quick --name anthropic
+claude-switch quick --name minimax
 
-# Or add with explicit provider
-claude-switch add --name minimax --key mmx-xxx --provider minimax
+# Or pass key explicitly
+claude-switch quick --name openai --key sk-xxx
+
+# Or add with explicit provider (when name doesn't match a provider)
+claude-switch add --name my-custom --key xxx --provider minimax
 
 # Switch to a profile
 claude-switch use --name minimax
@@ -69,7 +74,7 @@ docker run --rm -it -v ~/.claude-switch:/root/.claude-switch claude-switch --hel
 | `claude-switch use -n <name>` | Switch to profile |
 | `claude-switch show` | Show current profile |
 | `claude-switch export` | Export env vars |
-| `claude-switch detect -k <key>` | Detect provider from key |
+| `claude-switch detect -k <name>` | Detect provider from name |
 | `claude-switch providers` | List supported providers |
 | `claude-switch remove -n <name>` | Remove profile |
 
@@ -85,15 +90,19 @@ docker run --rm -it -v ~/.claude-switch:/root/.claude-switch claude-switch --hel
 
 ## 🔍 Auto-Detection
 
-The CLI automatically detects the provider from your API key format:
+The CLI automatically detects the provider from your **profile name**. If the name contains a known provider, it's auto-assigned:
 
-| Key Pattern | Provider |
-|------------|----------|
-| `sk-ant-*` | Anthropic |
-| `sk-*` (20+ chars) | OpenAI |
-| `mmx_*` | Minimax |
-| 80+ chars | Azure |
-| Other | Custom |
+| Profile Name | Detected Provider |
+|-------------|-------------------|
+| `anthropic`, `my-anthropic` | Anthropic |
+| `openai`, `openai-prod` | OpenAI |
+| `minimax`, `minimax-test` | Minimax |
+| `azure`, `azure-eastus` | Azure |
+| `vertex`, `vertex-us` | Vertex |
+| `github-copilot` | GitHub Copilot |
+| anything else | Custom |
+
+If the name doesn't match a provider, use `--provider` explicitly with `add`.
 
 ## 🏗️ Project Structure
 
@@ -141,13 +150,15 @@ go test -cover ./...
 ## 🔄 Example Workflow
 
 ```bash
-# 1. Add your Claude Pro key
-claude-switch quick --name claude-pro --key sk-ant-api03-xxx
+# 1. Set your env vars (or add them to your shell profile)
+export ANTHROPIC_API_KEY=sk-ant-api03-xxx
+export MINIMAX_API_KEY=sk-cp-your_key
 
-# 2. Add Minimax as backup
-claude-switch quick --name minimax --key mmx_your_key
+# 2. Quick add profiles (keys read from env automatically)
+claude-switch quick --name anthropic
+claude-switch quick --name minimax
 
-# 3. When Claude Pro hits limit...
+# 3. When Anthropic hits limit...
 claude-switch use --name minimax
 
 # 4. Apply the new profile
@@ -181,7 +192,7 @@ Profiles are stored in: `~/.claude-switch/config.json`
 docker build -t claude-switch .
 
 # Add profile
-docker run --rm -it -v $HOME/.claude-switch:/root/.claude-switch claude-switch add -n minimax -k mmx-xxx -p minimax
+docker run --rm -it -v $HOME/.claude-switch:/root/.claude-switch claude-switch quick -n minimax -k sk-cp-xxx
 
 # List profiles
 docker run --rm -it -v $HOME/.claude-switch:/root/.claude-switch claude-switch list

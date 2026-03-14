@@ -1,8 +1,10 @@
 package main
 
 import (
+	"bufio"
 	"fmt"
 	"os"
+	"strings"
 
 	"claude-switch/internal/config"
 	"claude-switch/internal/provider"
@@ -30,16 +32,16 @@ func main() {
 			},
 			{
 				Name:  "quick",
-				Usage: "Quick add profile - auto-detects provider from API key",
+				Usage: "Quick add profile - auto-detects provider and API key from env",
 				Flags: []cli.Flag{
-					&cli.StringFlag{Name: "name", Aliases: []string{"n"}, Required: true, Usage: "Profile name"},
-					&cli.StringFlag{Name: "key", Aliases: []string{"k"}, Required: true, Usage: "API key"},
+					&cli.StringFlag{Name: "name", Aliases: []string{"n"}, Required: true, Usage: "Profile name (must contain provider: anthropic, openai, minimax, etc.)"},
+					&cli.StringFlag{Name: "key", Aliases: []string{"k"}, Usage: "API key (auto-read from env if omitted)"},
 				},
 				Action: quickAdd,
 			},
 			{
-				Name:  "list",
-				Usage: "List all profiles",
+				Name:   "list",
+				Usage:  "List all profiles",
 				Action: listProfiles,
 			},
 			{
@@ -51,8 +53,8 @@ func main() {
 				Action: useProfile,
 			},
 			{
-				Name:  "show",
-				Usage: "Show current profile",
+				Name:   "show",
+				Usage:  "Show current profile",
 				Action: showCurrent,
 			},
 			{
@@ -64,8 +66,8 @@ func main() {
 				Action: removeProfile,
 			},
 			{
-				Name:  "export",
-				Usage: "Export current profile as environment variables",
+				Name:   "export",
+				Usage:  "Export current profile as environment variables",
 				Action: exportEnv,
 			},
 			{
@@ -85,9 +87,22 @@ func main() {
 				Action: detectProvider,
 			},
 			{
-				Name:  "providers",
-				Usage: "List supported providers",
+				Name:   "providers",
+				Usage:  "List supported providers",
 				Action: listProviders,
+			},
+			{
+				Name:   "test",
+				Usage:  "Test the current profile API key",
+				Action: testProfile,
+			},
+			{
+				Name:  "chat",
+				Usage: "Chat with the current profile",
+				Flags: []cli.Flag{
+					&cli.StringFlag{Name: "message", Aliases: []string{"m"}, Usage: "Single message (or leave empty for interactive mode)"},
+				},
+				Action: chatProfile,
 			},
 		},
 	}
@@ -148,8 +163,22 @@ func quickAdd(c *cli.Context) error {
 	name := c.String("name")
 	apiKey := c.String("key")
 
-	// Auto-detect provider
-	detected := provider.DetectProvider(apiKey)
+	// Auto-detect provider from profile name
+	detected := provider.DetectProvider(name)
+	if detected == provider.ProviderCustom {
+		return fmt.Errorf("could not detect provider from name %q. Use a name containing a provider (anthropic, openai, minimax, azure, vertex) or use 'add' with --provider", name)
+	}
+
+	// If no key provided, read from the provider's env var
+	if apiKey == "" {
+		envKey := provider.GetEnvKey(detected)
+		apiKey = os.Getenv(envKey)
+		if apiKey == "" {
+			return fmt.Errorf("no --key provided and %s is not set in environment", envKey)
+		}
+		color.Cyan("  Using API key from %s", envKey)
+	}
+
 	model := provider.GetDefaultModel(detected)
 
 	p := config.Profile{
@@ -173,7 +202,7 @@ func quickAdd(c *cli.Context) error {
 	}
 
 	color.Green("✓ Quick added profile: %s", p.Name)
-	color.Cyan("  Auto-detected: %s with model %s", p.Provider, p.Model)
+	color.Cyan("  Provider: %s | Model: %s", p.Provider, p.Model)
 
 	return nil
 }
@@ -223,7 +252,15 @@ func useProfile(c *cli.Context) error {
 		return err
 	}
 
-	color.Green("✓ Switched to: %s", name)
+	profile := config.GetCurrentProfile(cfg)
+
+	// Set system-level env vars automatically
+	if err := config.ApplyEnvVars(profile); err != nil {
+		return fmt.Errorf("failed to apply env vars: %w", err)
+	}
+
+	color.Green("✓ Switched to: %s (%s | %s)", name, profile.Provider, profile.Model)
+	color.Green("✓ System env vars applied — restart Claude Code to pick up the changes.")
 
 	return nil
 }
@@ -325,8 +362,8 @@ func applyProfile(c *cli.Context) error {
 }
 
 func detectProvider(c *cli.Context) error {
-	apiKey := c.String("key")
-	detected := provider.DetectProvider(apiKey)
+	name := c.String("key")
+	detected := provider.DetectProvider(name)
 
 	color.Green("Detected provider: %s", detected)
 	fmt.Printf("Default model: %s\n", provider.GetDefaultModel(detected))
@@ -343,6 +380,101 @@ func listProviders(c *cli.Context) error {
 		color.Green("  • %s", p)
 		fmt.Printf("    Model: %s\n", provider.GetDefaultModel(p))
 		fmt.Printf("    Env:   %s\n", provider.GetEnvKey(p))
+	}
+
+	return nil
+}
+
+func testProfile(c *cli.Context) error {
+	cfg, err := config.Load()
+	if err != nil {
+		return err
+	}
+
+	current := config.GetCurrentProfile(cfg)
+	if current == nil {
+		color.Yellow("No profile selected. Use 'claude-switch use --name <profile>'")
+		return nil
+	}
+
+	color.Cyan("Testing profile: %s", current.Name)
+	color.Cyan("Provider: %s | Model: %s", current.Provider, current.Model)
+	fmt.Println()
+
+	client := provider.NewClient(current.APIKey, current.Provider, current.Model, current.Endpoint)
+
+	if err := client.Test(); err != nil {
+		color.Red("✗ Test failed: %v", err)
+		os.Exit(1)
+	}
+
+	color.Green("✓ API key works!")
+	return nil
+}
+
+func chatProfile(c *cli.Context) error {
+	cfg, err := config.Load()
+	if err != nil {
+		return err
+	}
+
+	current := config.GetCurrentProfile(cfg)
+	if current == nil {
+		color.Yellow("No profile selected. Use 'claude-switch use --name <profile>'")
+		return nil
+	}
+
+	color.Cyan("Chatting with: %s (%s - %s)", current.Name, current.Provider, current.Model)
+	color.Yellow("Type 'exit' or 'quit' to end the conversation")
+	color.Yellow("Type 'clear' to clear conversation history")
+	fmt.Println()
+
+	client := provider.NewClient(current.APIKey, current.Provider, current.Model, current.Endpoint)
+	messages := []provider.Message{}
+
+	msg := c.String("message")
+	if msg != "" {
+		messages = append(messages, provider.Message{Role: "user", Content: msg})
+		response, err := client.Chat(messages)
+		if err != nil {
+			color.Red("Error: %v", err)
+			os.Exit(1)
+		}
+		fmt.Println(provider.FormatMessage("assistant", response))
+		return nil
+	}
+
+	scanner := bufio.NewScanner(os.Stdin)
+
+	for {
+		fmt.Print("\033[32mYou:\033[0m ")
+		if !scanner.Scan() {
+			break
+		}
+
+		input := strings.TrimSpace(scanner.Text())
+		if input == "" {
+			continue
+		}
+		if strings.ToLower(input) == "exit" || strings.ToLower(input) == "quit" {
+			color.Cyan("Goodbye!")
+			break
+		}
+		if strings.ToLower(input) == "clear" {
+			messages = []provider.Message{}
+			color.Cyan("Conversation cleared")
+			continue
+		}
+
+		messages = append(messages, provider.Message{Role: "user", Content: input})
+
+		response, err := client.Chat(messages)
+		if err != nil {
+			color.Red("Error: %v", err)
+			continue
+		}
+
+		fmt.Println(provider.FormatMessage("assistant", response))
 	}
 
 	return nil
