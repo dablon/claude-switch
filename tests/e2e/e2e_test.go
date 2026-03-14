@@ -9,9 +9,8 @@ import (
 
 const binaryName = "claude-switch"
 
-// getProjectRoot returns the project root directory
 func getProjectRoot() string {
-	// Try common patterns
+	// Check current directory and parent directories for go.mod
 	patterns := []string{
 		".",
 		"..",
@@ -35,14 +34,17 @@ func buildBinary(t *testing.T) string {
 	projectRoot := getProjectRoot()
 	t.Logf("Building from: %s", projectRoot)
 	
-	cmd := exec.Command("go", "build", "-o", binaryName, "./cmd/claude-switch")
+	// Build to a temp file then move it
+	binaryPath := filepath.Join(projectRoot, binaryName)
+	
+	cmd := exec.Command("go", "build", "-o", binaryPath, "./cmd/claude-switch")
 	cmd.Dir = projectRoot
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("Failed to build: %v\n%s", err, output)
 	}
 	
-	return filepath.Join(projectRoot, binaryName)
+	return binaryPath
 }
 
 func runCmd(t *testing.T, binaryPath, tmpDir string, args ...string) string {
