@@ -23,6 +23,38 @@ type Config struct {
 	CurrentProfile string    `json:"current_profile"`
 }
 
+// FileSystem interface for testing
+type FileSystem interface {
+	Stat(path string) (os.FileInfo, error)
+	ReadFile(path string) ([]byte, error)
+	MkdirAll(path string, perm os.FileMode) error
+	WriteFile(path string, data []byte, perm os.FileMode) error
+}
+
+type realFS struct{}
+
+func (realFS) Stat(path string) (os.FileInfo, error) {
+	return os.Stat(path)
+}
+
+func (realFS) ReadFile(path string) ([]byte, error) {
+	return os.ReadFile(path)
+}
+
+func (realFS) MkdirAll(path string, perm os.FileMode) error {
+	return os.MkdirAll(path, perm)
+}
+
+func (realFS) WriteFile(path string, data []byte, perm os.FileMode) error {
+	return os.WriteFile(path, data, perm)
+}
+
+var fs FileSystem = realFS{}
+
+func SetFileSystem(f FileSystem) {
+	fs = f
+}
+
 var (
 	configDir  = filepath.Join(os.Getenv("HOME"), ".claude-switch")
 	configFile = filepath.Join(configDir, "config.json")
@@ -30,11 +62,14 @@ var (
 
 // Load reads the config from disk
 func Load() (*Config, error) {
-	if _, err := os.Stat(configFile); os.IsNotExist(err) {
-		return &Config{Profiles: []Profile{}}, nil
+	if _, err := fs.Stat(configFile); err != nil {
+		if os.IsNotExist(err) {
+			return &Config{Profiles: []Profile{}}, nil
+		}
+		return nil, err
 	}
 
-	data, err := os.ReadFile(configFile)
+	data, err := fs.ReadFile(configFile)
 	if err != nil {
 		return nil, err
 	}
@@ -49,7 +84,7 @@ func Load() (*Config, error) {
 
 // Save writes the config to disk
 func Save(c *Config) error {
-	if err := os.MkdirAll(configDir, 0700); err != nil {
+	if err := fs.MkdirAll(configDir, 0700); err != nil {
 		return err
 	}
 
@@ -58,7 +93,7 @@ func Save(c *Config) error {
 		return err
 	}
 
-	return os.WriteFile(configFile, data, 0600)
+	return fs.WriteFile(configFile, data, 0600)
 }
 
 // AddProfile adds or updates a profile

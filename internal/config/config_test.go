@@ -560,3 +560,152 @@ func TestSave_AndLoadMultipleProfiles(t *testing.T) {
 		t.Errorf("Expected 3 profiles, got %d", len(loaded.Profiles))
 	}
 }
+
+// Mock filesystem for testing
+type mockFS struct {
+	statErr    error
+	readErr    error
+	mkdirErr  error
+	writeErr  error
+	statIsDir bool
+}
+
+func (m mockFS) Stat(path string) (os.FileInfo, error) {
+	if m.statErr != nil {
+		return nil, m.statErr
+	}
+	if m.statIsDir {
+		return nil, os.ErrInvalid
+	}
+	return nil, nil
+}
+
+func (m mockFS) ReadFile(path string) ([]byte, error) {
+	if m.readErr != nil {
+		return nil, m.readErr
+	}
+	return []byte("{}"), nil
+}
+
+func (m mockFS) MkdirAll(path string, perm os.FileMode) error {
+	if m.mkdirErr != nil {
+		return m.mkdirErr
+	}
+	return nil
+}
+
+func (m mockFS) WriteFile(path string, data []byte, perm os.FileMode) error {
+	if m.writeErr != nil {
+		return m.writeErr
+	}
+	return nil
+}
+
+func TestLoad_ReadError(t *testing.T) {
+	// Save original fs
+	original := fs
+	defer func() { fs = original }()
+
+	// Set mock that returns error on read
+	fs = mockFS{readErr: os.ErrPermission}
+	defer func() { fs = original }()
+
+	cfg, err := Load()
+	if err == nil {
+		t.Error("Load() should return error when ReadFile fails")
+	}
+	if cfg != nil {
+		t.Error("Load() should return nil config on error")
+	}
+}
+
+func TestLoad_StatError(t *testing.T) {
+	original := fs
+	defer func() { fs = original }()
+
+	fs = mockFS{statErr: os.ErrPermission}
+	defer func() { fs = original }()
+
+	cfg, err := Load()
+	if err == nil {
+		t.Error("Load() should return error when Stat fails")
+	}
+	_ = cfg
+}
+
+func TestSave_MkdirError(t *testing.T) {
+	original := fs
+	defer func() { fs = original }()
+
+	fs = mockFS{mkdirErr: os.ErrPermission}
+	defer func() { fs = original }()
+
+	cfg := &Config{}
+	err := Save(cfg)
+	if err == nil {
+		t.Error("Save() should return error when MkdirAll fails")
+	}
+}
+
+func TestSave_WriteError(t *testing.T) {
+	original := fs
+	defer func() { fs = original }()
+
+	fs = mockFS{writeErr: os.ErrPermission}
+	defer func() { fs = original }()
+
+	cfg := &Config{}
+	err := Save(cfg)
+	if err == nil {
+		t.Error("Save() should return error when WriteFile fails")
+	}
+}
+
+func TestSetFileSystem(t *testing.T) {
+	original := fs
+	defer func() { fs = original }()
+	
+	SetFileSystem(mockFS{})
+	// Just verify it doesn't panic
+}
+
+func TestLoad_StatErrorNotNotExist(t *testing.T) {
+	original := fs
+	defer func() { fs = original }()
+
+	// Stat returns an error that's not "file not found"
+	fs = mockFS{statErr: os.ErrPermission}
+	
+	cfg, err := Load()
+	if err == nil {
+		t.Error("Load() should return error when Stat fails")
+	}
+	if cfg != nil {
+		t.Error("cfg should be nil on error")
+	}
+}
+
+// Additional test for Load error path
+type mockFSWithInvalidData struct {
+	mockFS
+}
+
+func (m mockFSWithInvalidData) ReadFile(path string) ([]byte, error) {
+	return []byte("not valid json{"), nil
+}
+
+func TestLoad_JSONUnmarshalError(t *testing.T) {
+	original := fs
+	defer func() { fs = original }()
+
+	fs = mockFSWithInvalidData{}
+	defer func() { fs = original }()
+
+	cfg, err := Load()
+	if err == nil {
+		t.Error("Load() should return error for invalid JSON")
+	}
+	if cfg != nil {
+		t.Error("cfg should be nil on error")
+	}
+}

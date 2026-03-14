@@ -427,3 +427,11 @@ func TestDetectFromEnv_Vertex(t *testing.T) {
 		t.Errorf("DetectFromEnv() = %v, want %v", result, ProviderVertex)
 	}
 }
+
+func TestUnmarshalJSON_Error(t *testing.T) {
+	var p ProviderType
+	err := p.UnmarshalJSON([]byte("{invalid json}"))
+	if err == nil {
+		t.Error("UnmarshalJSON should fail with invalid JSON")
+	}
+}
