@@ -373,7 +373,12 @@ func TestSave_AndLoad(t *testing.T) {
 	}
 }
 
-func TestLoad_InvalidJSON(t *testing.T) {
+func TestLoad_FileReadError(t *testing.T) {
+	// Skip if running as root (root can read any file)
+	if os.Geteuid() == 0 {
+		t.Skip("Skipping test when running as root")
+	}
+	
 	tmpDir := t.TempDir()
 	oldDir := configDir
 	oldFile := configFile
@@ -384,12 +389,57 @@ func TestLoad_InvalidJSON(t *testing.T) {
 		configFile = oldFile
 	}()
 
-	// Write invalid JSON
-	os.WriteFile(configFile, []byte("not valid json"), 0644)
+	// Create file with no read permissions
+	os.WriteFile(configFile, []byte("{}"), 0000)
 
 	_, err := Load()
 	if err == nil {
-		t.Error("Load() should fail with invalid JSON")
+		t.Error("Load() should fail with unreadable file")
+	}
+}
+
+func TestLoad_FileExists(t *testing.T) {
+	tmpDir := t.TempDir()
+	oldDir := configDir
+	oldFile := configFile
+	configDir = tmpDir
+	configFile = filepath.Join(tmpDir, "config.json")
+	defer func() {
+		configDir = oldDir
+		configFile = oldFile
+	}()
+
+	// Create a valid config file
+	cfg := &Config{
+		Profiles: []Profile{
+			{Name: "test", Provider: provider.ProviderAnthropic},
+		},
+		CurrentProfile: "test",
+	}
+	Save(cfg)
+
+	// Load should succeed
+	loaded, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if len(loaded.Profiles) != 1 {
+		t.Errorf("Load() returned %d profiles, want 1", len(loaded.Profiles))
+	}
+}
+
+
+func TestGetCurrentProfile_MissingInList(t *testing.T) {
+	cfg := &Config{
+		Profiles: []Profile{
+			{Name: "profile1", Provider: provider.ProviderAnthropic},
+		},
+		CurrentProfile: "nonexistent", // Points to a profile that doesn't exist
+	}
+
+	p := GetCurrentProfile(cfg)
+	if p != nil {
+		t.Error("GetCurrentProfile() should return nil when current profile doesn't exist in list")
 	}
 }
 
@@ -447,5 +497,66 @@ func TestAddProfile_UpdateExisting(t *testing.T) {
 	// Should have updated values
 	if cfg.Profiles[0].Provider != provider.ProviderMinimax {
 		t.Errorf("Provider not updated: %v", cfg.Profiles[0].Provider)
+	}
+}
+
+func TestLoad_WithExistingProfile(t *testing.T) {
+	tmpDir := t.TempDir()
+	oldDir := configDir
+	oldFile := configFile
+	configDir = tmpDir
+	configFile = filepath.Join(tmpDir, "config.json")
+	defer func() {
+		configDir = oldDir
+		configFile = oldFile
+	}()
+
+	// Save a config first
+	cfg := &Config{
+		Profiles: []Profile{
+			{Name: "p1", Provider: provider.ProviderAnthropic, Model: "claude-opus-4-6"},
+			{Name: "p2", Provider: provider.ProviderMinimax, Model: "minimax-M2.5"},
+		},
+		CurrentProfile: "p2",
+	}
+	Save(cfg)
+
+	// Load should return saved config
+	loaded, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if len(loaded.Profiles) != 2 {
+		t.Errorf("Load() returned %d profiles, want 2", len(loaded.Profiles))
+	}
+	if loaded.CurrentProfile != "p2" {
+		t.Errorf("Load() CurrentProfile = %v, want 'p2'", loaded.CurrentProfile)
+	}
+}
+
+func TestSave_AndLoadMultipleProfiles(t *testing.T) {
+	tmpDir := t.TempDir()
+	oldDir := configDir
+	oldFile := configFile
+	configDir = tmpDir
+	configFile = filepath.Join(tmpDir, "config.json")
+	defer func() {
+		configDir = oldDir
+		configFile = oldFile
+	}()
+
+	cfg := &Config{
+		Profiles: []Profile{
+			{Name: "a", Provider: provider.ProviderAnthropic},
+			{Name: "b", Provider: provider.ProviderOpenAI},
+			{Name: "c", Provider: provider.ProviderMinimax},
+		},
+		CurrentProfile: "b",
+	}
+	Save(cfg)
+
+	loaded, _ := Load()
+	if len(loaded.Profiles) != 3 {
+		t.Errorf("Expected 3 profiles, got %d", len(loaded.Profiles))
 	}
 }

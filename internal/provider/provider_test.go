@@ -1,6 +1,7 @@
 package provider
 
 import (
+	"strings"
 	"os"
 	"testing"
 )
@@ -346,5 +347,83 @@ func TestProviderUnmarshalJSON(t *testing.T) {
 	}
 	if p != ProviderMinimax {
 		t.Errorf("UnmarshalJSON() = %v, want %v", p, ProviderMinimax)
+	}
+}
+
+func TestDetectProvider_AdditionalCases(t *testing.T) {
+	tests := []struct {
+		name     string
+		apiKey   string
+		expected ProviderType
+	}{
+		{"very long key", strings.Repeat("x", 100), ProviderAzure},
+		{"medium sk", "sk-abc123def456ghi789", ProviderOpenAI},
+		{"non-sk long", "abcdefghijklmnopqrstuvwxyz12345678901234567890", ProviderMinimax},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := DetectProvider(tt.apiKey)
+			if result != tt.expected {
+				t.Errorf("DetectProvider(%q) = %v, want %v", tt.name, result, tt.expected)
+			}
+		})
+	}
+}
+
+func TestDetectProvider_AllPatterns(t *testing.T) {
+	tests := []struct {
+		name     string
+		apiKey   string
+		expected ProviderType
+	}{
+		// Anthropic
+		{"ant basic", "sk-ant-api01", ProviderAnthropic},
+		{"ant long", "sk-ant-api03-abc123def456ghi789jkl012mno345pqr678stu901vwx", ProviderAnthropic},
+		// OpenAI
+		{"openai basic", "sk-abcdefghijklmnopqrstuvwxyz123456789", ProviderOpenAI},
+		// Azure (very long)
+		{"azure long", strings.Repeat("z", 85), ProviderAzure},
+		// Minimax
+		{"minimax", "mmx_abc123def456ghi789jkl012mno345pqr678stu", ProviderMinimax},
+		{"random long", "abc123def456ghi789jkl012mno345pqr678stu901vwx234", ProviderMinimax},
+		// Custom
+		{"empty", "", ProviderCustom},
+		{"short", "abc", ProviderCustom},
+		{"tiny sk", "sk", ProviderCustom},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := DetectProvider(tt.apiKey)
+			if result != tt.expected {
+				t.Errorf("DetectProvider(%q) = %v, want %v", tt.name, result, tt.expected)
+			}
+		})
+	}
+}
+
+func TestDetectFromEnv_Vertex(t *testing.T) {
+	// Save original
+	orig := os.Getenv("GOOGLE_APPLICATION_CREDENTIALS")
+	defer func() {
+		if orig != "" {
+			os.Setenv("GOOGLE_APPLICATION_CREDENTIALS", orig)
+		} else {
+			os.Unsetenv("GOOGLE_APPLICATION_CREDENTIALS")
+		}
+	}()
+
+	// Clear all env vars first
+	os.Unsetenv("ANTHROPIC_API_KEY")
+	os.Unsetenv("OPENAI_API_KEY")
+	os.Unsetenv("MINIMAX_API_KEY")
+	os.Unsetenv("AZURE_OPENAI_API_KEY")
+
+	// Set Vertex
+	os.Setenv("GOOGLE_APPLICATION_CREDENTIALS", "/path/to/creds.json")
+	result := DetectFromEnv()
+	if result != ProviderVertex {
+		t.Errorf("DetectFromEnv() = %v, want %v", result, ProviderVertex)
 	}
 }
