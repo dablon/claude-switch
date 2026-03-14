@@ -54,7 +54,7 @@ jobs:
       - name: Build
         run: |
           ext=${{ matrix.ext }}
-          GOOS=${{ matrix.goos }} GOARCH=${{ matrix.goarch }} go build -ldflags="-s -w" -o "claude-switch-${{ matrix.goos }}-${{ matrix.goarch }}${ext}" ./cmd/claude-switch
+          GOOS=${{ matrix.goos }} GOARCH=${{ matrix.goarch }} go build -ldflags="-s -w" -o "claude-switch-${{ matrix.goos }}-${{ matrix.goarch }}${ext}" ./cmd/...
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
