@@ -92,6 +92,18 @@ func main() {
 				Action: listProviders,
 			},
 			{
+				Name:  "edit",
+				Usage: "Edit an existing profile",
+				Flags: []cli.Flag{
+					&cli.StringFlag{Name: "name", Aliases: []string{"n"}, Required: true, Usage: "Profile name to edit"},
+					&cli.StringFlag{Name: "model", Aliases: []string{"m"}, Usage: "New model name"},
+					&cli.StringFlag{Name: "provider", Aliases: []string{"p"}, Usage: "New provider"},
+					&cli.StringFlag{Name: "key", Aliases: []string{"k"}, Usage: "New API key"},
+					&cli.StringFlag{Name: "endpoint", Aliases: []string{"e"}, Usage: "New endpoint"},
+				},
+				Action: editProfile,
+			},
+			{
 				Name:   "test",
 				Usage:  "Test the current profile API key",
 				Action: testProfile,
@@ -232,6 +244,65 @@ func listProfiles(c *cli.Context) error {
 
 	fmt.Println()
 	color.Cyan("💡 Use: claude-switch use --name <profile>")
+
+	return nil
+}
+
+func editProfile(c *cli.Context) error {
+	name := c.String("name")
+	model := c.String("model")
+	providerStr := c.String("provider")
+	apiKey := c.String("key")
+	endpoint := c.String("endpoint")
+
+	// Check that at least one field is being updated
+	if model == "" && providerStr == "" && apiKey == "" && endpoint == "" {
+		color.Yellow("No changes specified. Use --model, --provider, --key, or --endpoint")
+		return nil
+	}
+
+	cfg, err := config.Load()
+	if err != nil {
+		return err
+	}
+
+	profile := config.GetProfile(cfg, name)
+	if profile == nil {
+		return fmt.Errorf("profile not found: %s", name)
+	}
+
+	// Update fields if provided
+	if model != "" {
+		profile.Model = model
+	}
+	if apiKey != "" {
+		profile.APIKey = apiKey
+	}
+	if endpoint != "" {
+		profile.Endpoint = endpoint
+	}
+	if providerStr != "" {
+		profile.Provider = provider.ProviderType(providerStr)
+		// If model wasn't explicitly set, update it to provider default
+		if model == "" {
+			profile.Model = provider.GetDefaultModel(profile.Provider)
+		}
+	}
+
+	// Save the updated profile
+	if err := config.AddProfile(cfg, *profile); err != nil {
+		return err
+	}
+
+	if err := config.Save(cfg); err != nil {
+		return err
+	}
+
+	color.Green("✓ Updated profile: %s", name)
+	color.Cyan("  Provider: %s | Model: %s", profile.Provider, profile.Model)
+	if profile.Endpoint != "" {
+		fmt.Printf("  Endpoint: %s\n", profile.Endpoint)
+	}
 
 	return nil
 }

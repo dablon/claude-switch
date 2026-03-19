@@ -77,6 +77,9 @@ docker run --rm -it -v ~/.claude-switch:/root/.claude-switch claude-switch --hel
 | `claude-switch detect -k <name>` | Detect provider from name |
 | `claude-switch providers` | List supported providers |
 | `claude-switch remove -n <name>` | Remove profile |
+| `claude-switch edit -n <name> -m <model> -p <provider> -k <key> -e <endpoint>` | Edit existing profile |
+| `claude-switch test` | Test current profile API key |
+| `claude-switch chat -m <message>` | Chat with current profile |
 
 ### Options
 
@@ -165,6 +168,27 @@ claude-switch use --name minimax
 eval $(claude-switch export)
 
 # 5. Claude Code now uses Minimax!
+```
+
+## ✏️ Edit Profile
+
+Change model, provider, API key, or endpoint for an existing profile:
+
+```bash
+# Change model
+claude-switch edit --name minimax --model MiniMax-M2.7
+
+# Change provider and model
+claude-switch edit --name minimax --provider minimax --model MiniMax-M2.5
+
+# Change API key
+claude-switch edit --name minimax --key sk-xxx
+
+# Change endpoint
+claude-switch edit --name minimax --endpoint https://custom.endpoint.com
+
+# Change multiple options at once
+claude-switch edit --name minimax --provider minimax --model MiniMax-M2.7 --key sk-xxx
 ```
 
 ## ⚙️ Config
