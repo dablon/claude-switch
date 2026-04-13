@@ -63,6 +63,8 @@ func (c *Client) Test() error {
 		return c.testMinimax(testMsg)
 	case ProviderAzure:
 		return c.testAzure(testMsg)
+	case ProviderOllama, ProviderCustom:
+		return c.testOllama(testMsg)
 	default:
 		return fmt.Errorf("unsupported provider: %s", c.Provider)
 	}
@@ -189,6 +191,51 @@ func (c *Client) testAzure(msg string) error {
 	return nil
 }
 
+func (c *Client) testOllama(msg string) error {
+	baseURL := c.Endpoint
+	if baseURL == "" {
+		baseURL = "http://localhost:11434"
+	}
+	// Normalize: strip trailing /api or /v1
+	baseURL = strings.TrimSuffix(baseURL, "/api")
+	baseURL = strings.TrimSuffix(baseURL, "/v1")
+
+	// Try both native /chat and OpenAI-compatible /v1/chat/completions
+	url := baseURL + "/api/chat"
+
+	reqBody := map[string]interface{}{
+		"model": c.Model,
+		"messages": []map[string]string{
+			{"role": "user", "content": msg},
+		},
+		"stream": false,
+	}
+
+	bodyBytes, _ := json.Marshal(reqBody)
+	req, _ := http.NewRequest("POST", url, bytes.NewBuffer(bodyBytes))
+	req.Header.Set("Content-Type", "application/json")
+	// Only add auth for local Ollama; remote ollama.com uses Bearer token
+	isLocal := strings.HasPrefix(baseURL, "http://localhost") || strings.HasPrefix(baseURL, "http://127.0.0.1")
+	if isLocal && c.APIKey != "" && c.APIKey != "ollama" {
+		req.Header.Set("Authorization", "Bearer "+c.APIKey)
+	}
+	if !isLocal && c.APIKey != "" {
+		req.Header.Set("Authorization", "Bearer "+c.APIKey)
+	}
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("request failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != 200 {
+		return c.parseError(resp.Body, "ollama")
+	}
+
+	return nil
+}
+
 func (c *Client) parseError(body io.Reader, provider string) error {
 	data, _ := io.ReadAll(body)
 
@@ -214,6 +261,8 @@ func (c *Client) Chat(messages []Message) (string, error) {
 		return c.chatMinimax(messages)
 	case ProviderAzure:
 		return c.chatAzure(messages)
+	case ProviderOllama, ProviderCustom:
+		return c.chatOllama(messages)
 	default:
 		return "", fmt.Errorf("unsupported provider: %s", c.Provider)
 	}
@@ -396,6 +445,65 @@ func (c *Client) chatAzure(msgs []Message) (string, error) {
 	}
 
 	return "", nil
+}
+
+func (c *Client) chatOllama(msgs []Message) (string, error) {
+	baseURL := c.Endpoint
+	if baseURL == "" {
+		baseURL = "http://localhost:11434"
+	}
+	// Normalize: strip trailing /api or /v1
+	baseURL = strings.TrimSuffix(baseURL, "/api")
+	baseURL = strings.TrimSuffix(baseURL, "/v1")
+
+	// Try both native /chat and OpenAI-compatible /v1/chat/completions
+	url := baseURL + "/api/chat"
+
+	ollamaMsgs := make([]map[string]string, len(msgs))
+	for i, m := range msgs {
+		ollamaMsgs[i] = map[string]string{"role": m.Role, "content": m.Content}
+	}
+
+	reqBody := map[string]interface{}{
+		"model":    c.Model,
+		"messages":  ollamaMsgs,
+		"stream":    false,
+	}
+
+	bodyBytes, _ := json.Marshal(reqBody)
+	req, _ := http.NewRequest("POST", url, bytes.NewBuffer(bodyBytes))
+	req.Header.Set("Content-Type", "application/json")
+	// Only add auth for local Ollama; remote ollama.com uses Bearer token
+	isLocal := strings.HasPrefix(baseURL, "http://localhost") || strings.HasPrefix(baseURL, "http://127.0.0.1")
+	if isLocal && c.APIKey != "" && c.APIKey != "ollama" {
+		req.Header.Set("Authorization", "Bearer "+c.APIKey)
+	}
+	if !isLocal && c.APIKey != "" {
+		req.Header.Set("Authorization", "Bearer "+c.APIKey)
+	}
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("request failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	data, _ := io.ReadAll(resp.Body)
+
+	var result struct {
+		Message struct {
+			Content string `json:"content"`
+		} `json:"message"`
+		Error   *APIError `json:"error,omitempty"`
+	}
+
+	json.Unmarshal(data, &result)
+
+	if result.Error != nil {
+		return "", fmt.Errorf("API error: %s", result.Error.Message)
+	}
+
+	return result.Message.Content, nil
 }
 
 func FormatMessage(role, content string) string {

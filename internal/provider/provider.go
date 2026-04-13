@@ -18,6 +18,7 @@ const (
 	ProviderGitHubCopilot ProviderType = "github-copilot"
 	ProviderAzure       ProviderType = "azure"
 	ProviderVertex      ProviderType = "vertex"
+	ProviderOllama      ProviderType = "ollama"
 	ProviderCustom      ProviderType = "custom"
 )
 
@@ -33,6 +34,7 @@ var providerDefaults = map[ProviderType]struct {
 	ProviderGitHubCopilot: {model: "gpt-5-mini", envKey: "OPENAI_API_KEY", modelEnv: "OPENAI_MODEL", endpoint: ""},
 	ProviderAzure:         {model: "gpt-4", envKey: "AZURE_OPENAI_API_KEY", modelEnv: "AZURE_OPENAI_MODEL", endpoint: "https://{resource}.openai.azure.com"},
 	ProviderVertex:        {model: "gemini-2.0-flash", envKey: "GOOGLE_APPLICATION_CREDENTIALS", modelEnv: "VERTEX_MODEL", endpoint: ""},
+	ProviderOllama:        {model: "llama3", envKey: "OLLAMA_API_KEY", modelEnv: "OLLAMA_MODEL", endpoint: "http://localhost:11434/v1"},
 }
 
 // claudeVarsForProvider returns the ANTHROPIC_* vars Claude Code needs for a given provider.
@@ -82,6 +84,11 @@ func claudeVarsForProvider(p ProviderType, apiKey, model, endpoint string) map[s
 // by matching against known provider names and their common aliases.
 func DetectProvider(name string) ProviderType {
 	lower := strings.ToLower(name)
+
+	// Explicitly check for ollama before generic loop
+	if strings.Contains(lower, "ollama") {
+		return ProviderOllama
+	}
 
 	for _, p := range AllProviders() {
 		if strings.Contains(lower, string(p)) {
@@ -250,6 +257,7 @@ func AllProviders() []ProviderType {
 		ProviderGitHubCopilot,
 		ProviderAzure,
 		ProviderVertex,
+		ProviderOllama,
 	}
 }
 
